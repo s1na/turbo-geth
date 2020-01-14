@@ -185,7 +185,7 @@ func (tr *Resolver) finaliseRoot() error {
 				Nonce:       tr.a.Nonce,
 			}
 		}
-		tr.groups, err = GenStructStep(tr.currentRs.HashOnly, tr.curr.Bytes(), tr.succ.Bytes(), tr.hb, data, tr.groups)
+		tr.groups, err = GenStructStep(tr.hackWrapperForHashOnly, tr.curr.Bytes(), tr.succ.Bytes(), tr.hb, data, tr.groups)
 		if err != nil {
 			return err
 		}
@@ -278,7 +278,7 @@ func (tr *Resolver) Walker(keyIdx int, k []byte, v []byte) error {
 					Nonce:       tr.a.Nonce,
 				}
 			}
-			tr.groups, err = GenStructStep(tr.currentRs.HashOnly, tr.curr.Bytes(), tr.succ.Bytes(), tr.hb, data, tr.groups)
+			tr.groups, err = GenStructStep(tr.hackWrapperForHashOnly, tr.curr.Bytes(), tr.succ.Bytes(), tr.hb, data, tr.groups)
 			if err != nil {
 				return err
 			}
@@ -313,6 +313,11 @@ func (tr *Resolver) Walker(keyIdx int, k []byte, v []byte) error {
 	return nil
 }
 
+func (tr *Resolver) hackWrapperForHashOnly(prefix []byte) bool {
+	tr.hb.lastPrefix = prefix // hack, will use this field in HashBuilder.afterBranch method for caching
+	return tr.currentRs.HashOnly(prefix)
+}
+
 func (tr *Resolver) ResolveWithDb(db ethdb.Database, blockNr uint64) error {
 	startkeys, fixedbits := tr.PrepareResolveParams()
 	var err error
@@ -324,6 +329,7 @@ func (tr *Resolver) ResolveWithDb(db ethdb.Database, blockNr uint64) error {
 		}
 		return fmt.Errorf("Unexpected resolution: %s at %s", b.String(), debug.Stack())
 	}
+	tr.hb.SetIntermediateTrieHashesDb(db)
 	if tr.accounts {
 		if tr.historical {
 			err = db.MultiWalkAsOf(dbutils.AccountsBucket, dbutils.AccountsHistoryBucket, startkeys, fixedbits, blockNr+1, tr.Walker)
@@ -344,7 +350,7 @@ func (tr *Resolver) ResolveWithDb(db ethdb.Database, blockNr uint64) error {
 }
 
 func (t *Trie) rebuildHashes(db ethdb.Database, key []byte, pos int, blockNr uint64, accounts bool, expected hashNode) error {
-	req := t.NewResolveRequest(nil, key, pos, expected)
+	var req = t.NewResolveRequest(nil, key, pos, expected)
 	r := NewResolver(5, accounts, blockNr)
 	r.AddRequest(req)
 	return r.ResolveWithDb(db, blockNr)

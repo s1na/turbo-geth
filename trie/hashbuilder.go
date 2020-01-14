@@ -7,9 +7,12 @@ import (
 	"math/bits"
 
 	"github.com/ledgerwatch/turbo-geth/common"
+	"github.com/ledgerwatch/turbo-geth/common/dbutils"
 	"github.com/ledgerwatch/turbo-geth/common/pool"
 	"github.com/ledgerwatch/turbo-geth/core/types/accounts"
 	"github.com/ledgerwatch/turbo-geth/crypto"
+	"github.com/ledgerwatch/turbo-geth/ethdb"
+	"github.com/ledgerwatch/turbo-geth/log"
 	"github.com/ledgerwatch/turbo-geth/rlp"
 	"github.com/ledgerwatch/turbo-geth/trie/rlphacks"
 	"golang.org/x/crypto/sha3"
@@ -30,6 +33,10 @@ type HashBuilder struct {
 	sha       keccakState      // Keccak primitive that can absorb data (Write), and get squeezed to the hash out (Read)
 
 	trace bool // Set to true when HashBuilder is required to print trace information for diagnostics
+
+	lastPrefix []byte
+
+	intermediateTrieHashesDb ethdb.MinDatabase
 }
 
 // NewHashBuilder creates a new HashBuilder
@@ -39,6 +46,10 @@ func NewHashBuilder(trace bool) *HashBuilder {
 		byteArrayWriter: &ByteArrayWriter{},
 		trace:           trace,
 	}
+}
+
+func (hb *HashBuilder) SetIntermediateTrieHashesDb(intermediateTrieHashesDb ethdb.MinDatabase) {
+	hb.intermediateTrieHashesDb = intermediateTrieHashesDb
 }
 
 // Reset makes the HashBuilder suitable for reuse
@@ -427,7 +438,26 @@ func (hb *HashBuilder) branch(set uint16) error {
 	if hb.trace {
 		fmt.Printf("Stack depth: %d\n", len(hb.nodeStack))
 	}
+
+	hb.afterBranch()
 	return nil
+}
+
+func (hb *HashBuilder) afterBranch() {
+	if hb.intermediateTrieHashesDb == nil {
+		return
+	}
+	if hb.lastPrefix == nil {
+		log.Warn("IntermediateTrieCash: lastPrefix was not set for Delete")
+		return
+	}
+	//defer func(t time.Time) { fmt.Println("IntermediateTrieHashesBucket.Delete", time.Since(t)) }(time.Now())
+	k := make([]byte, len(hb.lastPrefix))
+	copy(k, hb.lastPrefix)
+	if err := hb.intermediateTrieHashesDb.Delete(dbutils.IntermediateTrieHashesBucket, k); err != nil {
+		log.Warn("could not Delete from IntermediateTrieHashesBucket", "err", err)
+	}
+	hb.lastPrefix = nil
 }
 
 func (hb *HashBuilder) branchHash(set uint16) error {

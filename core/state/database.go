@@ -21,13 +21,14 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/ledgerwatch/turbo-geth/common/debug"
 	"io"
 	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/ledgerwatch/turbo-geth/common/debug"
 
 	lru "github.com/hashicorp/golang-lru"
 
@@ -230,6 +231,23 @@ func newTrieDbState(root common.Hash, db ethdb.Database, blockNr uint64) (*TrieD
 		return nil, err
 	}
 	t := trie.New(root)
+
+	var intermediateCache ethdb.MinDatabase = db
+	t.SetUnloadFunc(func(prefix []byte, subtrieHash []byte) {
+		if prefix == nil {
+			log.Warn("IntermediateTrieCache: empty prefix for Put")
+			return
+		}
+		//defer func(t time.Time) { fmt.Println("IntermediateTrieHashesBucket.Put", time.Since(t)) }(time.Now())
+
+		k := make([]byte, len(prefix))
+		v := make([]byte, len(subtrieHash))
+		copy(k, prefix)
+		copy(v, subtrieHash)
+		if err := intermediateCache.Put(dbutils.IntermediateTrieHashesBucket, k, v); err != nil {
+			log.Warn("could not put IntermediateTrieHashesBucket", "err", err)
+		}
+	})
 	tp := trie.NewTriePruning(blockNr)
 
 	tds := &TrieDbState{
