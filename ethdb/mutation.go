@@ -3,13 +3,13 @@ package ethdb
 import (
 	"bytes"
 	"fmt"
-	"github.com/ledgerwatch/turbo-geth/common/debug"
 	"sort"
 	"sync"
 	"sync/atomic"
 
 	"github.com/ledgerwatch/turbo-geth/common"
 	"github.com/ledgerwatch/turbo-geth/common/dbutils"
+	"github.com/ledgerwatch/turbo-geth/common/debug"
 	"github.com/ledgerwatch/turbo-geth/log"
 )
 
@@ -348,7 +348,7 @@ func (m *mutation) Commit() (uint64, error) {
 				changeSetKey := dbutils.CompositeChangeSetKey(encodedTS, hBucket)
 				dat, err := m.getNoLock(dbutils.ChangeSetBucket, changeSetKey)
 				if err != nil && err != ErrKeyNotFound {
-					return 0, err
+					return 0, fmt.Errorf("m.getNoLock failed: %w", err)
 				}
 
 				changeSet, err := dbutils.DecodeChangeSet(dat)
@@ -357,7 +357,7 @@ func (m *mutation) Commit() (uint64, error) {
 				}
 
 				if err = changeSet.MultiAdd(changes.Changes); err != nil {
-					return 0, err
+					return 0, fmt.Errorf("changeSet.MultiAdd failed: %w", err)
 				}
 				changedRLP, err := changeSet.Encode()
 				if err != nil {
@@ -371,7 +371,7 @@ func (m *mutation) Commit() (uint64, error) {
 							if m.db != nil {
 								value, err = m.db.Get(hBucket, []byte(k))
 								if err != nil && err != ErrKeyNotFound {
-									return 0, err
+									return 0, fmt.Errorf("db.Get failed: %w", err)
 								}
 							}
 						}
@@ -395,7 +395,7 @@ func (m *mutation) Commit() (uint64, error) {
 		for key := range bt {
 			value, _ := bt.GetStr(key)
 			if err := tuples.Append(bucketB, []byte(key), value); err != nil {
-				return 0, err
+				return 0, fmt.Errorf("tuples.Append failed: %w", err)
 			}
 		}
 	}
@@ -403,7 +403,7 @@ func (m *mutation) Commit() (uint64, error) {
 
 	written, err := m.db.MultiPut(tuples.Values...)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("db.MultiPut failed: %w", err)
 	}
 	m.puts = make(puts)
 	return written, nil
