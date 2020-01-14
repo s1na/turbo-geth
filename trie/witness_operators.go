@@ -145,8 +145,9 @@ func (o *OperatorLeafAccount) WriteTo(output *WitnessStatsCollector) error {
 		return nil
 	}
 
+	encoder := codec.NewEncoder(output.WithColumn(ColumnLeafValues), &cbor)
+
 	if o.Nonce > 0 {
-		encoder := codec.NewEncoder(output.WithColumn(ColumnLeafValues), &cbor)
 		if err := encoder.Encode(o.Nonce); err != nil {
 			return err
 		}
@@ -177,9 +178,10 @@ func (o *OperatorLeafAccount) LoadFrom(input io.Reader) error {
 	o.HasCode = flags[0]&flagCode != 0
 	o.HasStorage = flags[0]&flagStorage != 0
 
+	decoder := codec.NewDecoder(input, &cbor)
+
 	if flags[0]&flagNonce != 0 {
 		var nonce uint64
-		decoder := codec.NewDecoder(input, &cbor)
 		err = decoder.Decode(&nonce)
 		if err != nil {
 			return err
