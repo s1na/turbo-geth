@@ -10,6 +10,7 @@ import (
 
 	"github.com/ledgerwatch/turbo-geth/common"
 	"github.com/ledgerwatch/turbo-geth/common/dbutils"
+	"github.com/ledgerwatch/turbo-geth/core/state"
 	"github.com/ledgerwatch/turbo-geth/core/types/accounts"
 	"github.com/ledgerwatch/turbo-geth/ethdb"
 	"github.com/ledgerwatch/turbo-geth/log"
@@ -68,6 +69,7 @@ type Resolver struct {
 	a          accounts.Account
 
 	intermediateTrieHashesDb ethdb.MinDatabase
+	invalidationKey          bytes.Buffer
 }
 
 func NewResolver(topLevels int, forAccounts bool, blockNr uint64) *Resolver {
@@ -322,15 +324,18 @@ func (tr *Resolver) Walker(keyIdx int, k []byte, v []byte) error {
 				}
 			}
 			for _, prefLen := range tr.hb.invalidatePrefixes {
-				prefix := append(tr.skipped.Bytes(), tr.succ.Bytes()[:prefLen]...)
-				tr.invalidateAccountCache(prefix)
+				tr.invalidationKey.Reset()
+				tr.invalidationKey.Write(tr.skipped.Bytes())
+				tr.invalidationKey.Write(tr.succ.Bytes()[:prefLen])
+				tr.invalidateIntermediateCache(tr.invalidationKey.Bytes())
 			}
 		} else {
 			for _, prefLen := range tr.hb.invalidatePrefixes {
-				prefix := append(tr.skipped.Bytes(), tr.succ.Bytes()[:prefLen]...)
-				addrHash := common.BytesToHash(k[:common.HashLength])
-				tr.invalidateStorageCache(addrHash, tr.a.Incarnation, prefix)
-				tr.invalidateAccountCache(prefix)
+				tr.invalidationKey.Reset()
+				tr.invalidationKey.Write(k[:common.HashLength+state.IncarnationLength])
+				tr.invalidationKey.Write(tr.skipped.Bytes())
+				tr.invalidationKey.Write(tr.succ.Bytes()[:prefLen])
+				tr.invalidateIntermediateCache(tr.invalidationKey.Bytes())
 			}
 			tr.value.Buffer.Reset()
 			tr.value.Buffer.Write(v)
@@ -341,27 +346,14 @@ func (tr *Resolver) Walker(keyIdx int, k []byte, v []byte) error {
 	return nil
 }
 
-func (tr *Resolver) invalidateAccountCache(prefix []byte) {
+func (tr *Resolver) invalidateIntermediateCache(key []byte) {
 	if tr.intermediateTrieHashesDb == nil {
 		return
 	}
-	if len(prefix) == 0 {
+	if len(key) == 0 {
 		return
 	}
-	if err := tr.intermediateTrieHashesDb.Delete(dbutils.IntermediateTrieHashesBucket, prefix); err != nil {
-		log.Warn("could not Delete from IntermediateTrieHashesBucket", "err", err)
-	}
-}
-
-func (tr *Resolver) invalidateStorageCache(addressHash common.Hash, incarnation uint64, prefix []byte) {
-	if tr.intermediateTrieHashesDb == nil {
-		return
-	}
-	if len(prefix) == 0 {
-		return
-	}
-	toDel := append(dbutils.GenerateStoragePrefix(addressHash, incarnation), prefix...)
-	if err := tr.intermediateTrieHashesDb.Delete(dbutils.IntermediateTrieHashesBucket, toDel); err != nil {
+	if err := tr.intermediateTrieHashesDb.Delete(dbutils.IntermediateTrieHashesBucket, key); err != nil {
 		log.Warn("could not Delete from IntermediateTrieHashesBucket", "err", err)
 	}
 }
